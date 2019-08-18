@@ -3,8 +3,7 @@
 ## Introduction
 
 This repository is a clone of the official Portuguese eID middleware "eidmw" offline version.
-The intention of this repository is to help keep tracking the development of the necessary patches to make eidmw 
-(Portugues eID middleware) build and work on a Raspian 10 (codename "buster").
+The intention of this repository is to help keep tracking the development of the necessary patches to make eidmw project compile and work on a Raspian 10 (codename "buster").
 
 To make it work it is necessary build against the following libs:
  - libssl1.1 (OpenSSL v1.1+)
