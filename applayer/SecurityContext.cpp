@@ -132,8 +132,8 @@ namespace eIDMW
 		unsigned char xx[MAC_KEYSIZE];
 	    unsigned char des_out[MAC_KEYSIZE];
 	    unsigned char *msg = NULL;
-	    des_key_schedule ks_a;
-	    des_key_schedule ks_b;
+	    DES_key_schedule ks_a;
+	    DES_key_schedule ks_b;
 	    size_t i, j;
 
 		CByteArray in;
@@ -485,28 +485,39 @@ namespace eIDMW
 
         //Verify hash C = SHA-1 [PRND1 || KICC || SN.ICC || TRnd || KIFD || DH.Params]
 
+        unsigned int md_len = 0;
+        const int prnd1_len = 106;
+
+        const unsigned char *prnd1 = inputToSignature + 1;
+        const unsigned char *c_hash = inputToSignature + 1 + prnd1_len;
+
+
+        CByteArray dh_params(this->dh_g);
+        dh_params.Append(this->dh_p);
+        dh_params.Append(this->dh_q);
+
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
         EVP_MD_CTX cmd_ctx;
-		unsigned int md_len = 0;
-		const int prnd1_len = 106;
-
-		const unsigned char *prnd1 = inputToSignature + 1;
-		const unsigned char *c_hash = inputToSignature + 1 + prnd1_len;
-		
-
-		CByteArray dh_params(this->dh_g);
-		dh_params.Append(this->dh_p);
-		dh_params.Append(this->dh_q);
-
-		EVP_DigestInit(&cmd_ctx, EVP_sha1());
-		EVP_DigestUpdate(&cmd_ctx, prnd1, prnd1_len);
-		EVP_DigestUpdate(&cmd_ctx, m_kicc.GetBytes(), m_kicc.Size());
-		EVP_DigestUpdate(&cmd_ctx, snICC.GetBytes(), snICC.Size());
-		EVP_DigestUpdate(&cmd_ctx, m_RNDIFD.GetBytes(), m_RNDIFD.Size());
-		EVP_DigestUpdate(&cmd_ctx, m_kifd.GetBytes(), m_kifd.Size());
-		EVP_DigestUpdate(&cmd_ctx, dh_params.GetBytes(), dh_params.Size());
-
-
-    	EVP_DigestFinal(&cmd_ctx, computed_digest, &md_len);
+        EVP_DigestInit(&cmd_ctx, EVP_sha1());
+        EVP_DigestUpdate(&cmd_ctx, prnd1, prnd1_len);
+        EVP_DigestUpdate(&cmd_ctx, m_kicc.GetBytes(), m_kicc.Size());
+        EVP_DigestUpdate(&cmd_ctx, snICC.GetBytes(), snICC.Size());
+        EVP_DigestUpdate(&cmd_ctx, m_RNDIFD.GetBytes(), m_RNDIFD.Size());
+        EVP_DigestUpdate(&cmd_ctx, m_kifd.GetBytes(), m_kifd.Size());
+        EVP_DigestUpdate(&cmd_ctx, dh_params.GetBytes(), dh_params.Size());
+        EVP_DigestFinal(&cmd_ctx, computed_digest, &md_len);
+#else
+	EVP_MD_CTX *cmd_ctx = EVP_MD_CTX_new();
+        EVP_DigestInit(cmd_ctx, EVP_sha1());
+        EVP_DigestUpdate(cmd_ctx, prnd1, prnd1_len);
+        EVP_DigestUpdate(cmd_ctx, m_kicc.GetBytes(), m_kicc.Size());
+        EVP_DigestUpdate(cmd_ctx, snICC.GetBytes(), snICC.Size());
+        EVP_DigestUpdate(cmd_ctx, m_RNDIFD.GetBytes(), m_RNDIFD.Size());
+        EVP_DigestUpdate(cmd_ctx, m_kifd.GetBytes(), m_kifd.Size());
+        EVP_DigestUpdate(cmd_ctx, dh_params.GetBytes(), dh_params.Size());
+        EVP_DigestFinal(cmd_ctx, computed_digest, &md_len);
+        EVP_MD_CTX_free(cmd_ctx);
+#endif
 
     	if (md_len != 20)
     	{
@@ -629,19 +640,32 @@ namespace eIDMW
             return CByteArray();
         }
 
-		EVP_MD_CTX cmd_ctx;
-		unsigned int md_len = 0;
+	unsigned int md_len = 0;
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+	EVP_MD_CTX cmd_ctx;
+	EVP_DigestInit(&cmd_ctx, EVP_sha1());
+	EVP_DigestUpdate(&cmd_ctx, prnd2, PRND2_SIZE);
+	EVP_DigestUpdate(&cmd_ctx, m_kifd.GetBytes(), m_kifd.Size());
+	EVP_DigestUpdate(&cmd_ctx, sn_ifd_bytes.GetBytes(), sn_ifd_bytes.Size());
+	EVP_DigestUpdate(&cmd_ctx, crnd_bytes.GetBytes(), crnd_bytes.Size());
+	EVP_DigestUpdate(&cmd_ctx, m_kicc.GetBytes(), m_kicc.Size());
+	EVP_DigestUpdate(&cmd_ctx, dh_params.GetBytes(), dh_params.Size());
 
-		EVP_DigestInit(&cmd_ctx, EVP_sha1());
-		EVP_DigestUpdate(&cmd_ctx, prnd2, PRND2_SIZE);
-		EVP_DigestUpdate(&cmd_ctx, m_kifd.GetBytes(), m_kifd.Size());
-		EVP_DigestUpdate(&cmd_ctx, sn_ifd_bytes.GetBytes(), sn_ifd_bytes.Size());
-		EVP_DigestUpdate(&cmd_ctx, crnd_bytes.GetBytes(), crnd_bytes.Size());
-		EVP_DigestUpdate(&cmd_ctx, m_kicc.GetBytes(), m_kicc.Size());
-		EVP_DigestUpdate(&cmd_ctx, dh_params.GetBytes(), dh_params.Size());
+	EVP_DigestFinal(&cmd_ctx, sha1_digest, &md_len);
+#else
+	EVP_MD_CTX *cmd_ctx = EVP_MD_CTX_new();
+	EVP_DigestInit(cmd_ctx, EVP_sha1());
+	EVP_DigestUpdate(cmd_ctx, prnd2, PRND2_SIZE);
+	EVP_DigestUpdate(cmd_ctx, m_kifd.GetBytes(), m_kifd.Size());
+	EVP_DigestUpdate(cmd_ctx, sn_ifd_bytes.GetBytes(), sn_ifd_bytes.Size());
+	EVP_DigestUpdate(cmd_ctx, crnd_bytes.GetBytes(), crnd_bytes.Size());
+	EVP_DigestUpdate(cmd_ctx, m_kicc.GetBytes(), m_kicc.Size());
+	EVP_DigestUpdate(cmd_ctx, dh_params.GetBytes(), dh_params.Size());
 
+	EVP_DigestFinal(cmd_ctx, sha1_digest, &md_len);
+	EVP_MD_CTX_free(cmd_ctx);
+#endif
 
-    	EVP_DigestFinal(&cmd_ctx, sha1_digest, &md_len);
 
     	if (md_len != 20)
     	{
@@ -678,8 +702,16 @@ namespace eIDMW
 		this->dh_q = CByteArray(std::string(dh_params.dh_q), true);
 
 		DH * dh_key = DH_new();
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 		BN_hex2bn(&(dh_key->p), dh_params.dh_p);
 		BN_hex2bn(&(dh_key->g), dh_params.dh_g);
+#else
+		BIGNUM *p=NULL;
+		BIGNUM *g=NULL;
+		BN_hex2bn(&p, dh_params.dh_p);
+		BN_hex2bn(&g, dh_params.dh_g);
+		DH_set0_pqg(dh_key,p,NULL,g);
+#endif
 
 		//Store the card auth key for later
 		this->pkIccAuth = CByteArray(std::string(dh_params.card_auth_public_key), true);
@@ -690,13 +722,24 @@ namespace eIDMW
 			throw CMWEXCEPTION(EIDMW_ERR_CVC_GENERIC_ERROR);
 		}
 
-	 	char * kifd = BN_bn2hex(dh_key->pub_key);
-	 	unsigned char * kifd_bytes = (unsigned char *) OPENSSL_malloc(BN_num_bytes(dh_key->pub_key));
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+		char * kifd = BN_bn2hex(dh_key->pub_key);
+		unsigned char * kifd_bytes = (unsigned char *) OPENSSL_malloc(BN_num_bytes(dh_key->pub_key));
 
-	 	//int BN_bn2bin(const BIGNUM *a, unsigned char *to);
-	 	//Store the byte array version for further computations
-	 	BN_bn2bin(dh_key->pub_key, kifd_bytes);
-	 	m_kifd = CByteArray(kifd_bytes, BN_num_bytes(dh_key->pub_key));
+		//int BN_bn2bin(const BIGNUM *a, unsigned char *to);
+		//Store the byte array version for further computations
+		BN_bn2bin(dh_key->pub_key, kifd_bytes);
+		m_kifd = CByteArray(kifd_bytes, BN_num_bytes(dh_key->pub_key));
+#else
+		char * kifd = BN_bn2hex(DH_get0_pub_key(dh_key));
+		unsigned char * kifd_bytes = (unsigned char *) OPENSSL_malloc(BN_num_bytes(DH_get0_pub_key(dh_key)));
+
+		//int BN_bn2bin(const BIGNUM *a, unsigned char *to);
+		//Store the byte array version for further computations
+
+		BN_bn2bin(DH_get0_pub_key(dh_key), kifd_bytes);
+		m_kifd = CByteArray(kifd_bytes, BN_num_bytes(DH_get0_pub_key(dh_key)));
+#endif
 
 	 	if(!sam_helper->sendKIFD(kifd))
 	 	{
