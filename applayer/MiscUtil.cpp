@@ -141,6 +141,108 @@ const void *memmem(const void *haystack, size_t n, const void *needle, size_t m)
 
 #endif
 
+// Required to keep functions makeQName() working
+// Starting libxml-security-c v2.0.0+ makeQName() functions became internal.
+#if _XSEC_VERSION_FULL >= 20000L
+	// --------------------------------------------------------------------------------
+
+	//           Make a QName
+	// --------------------------------------------------------------------------------
+
+	safeBuffer &makeQName(safeBuffer & qname, safeBuffer &prefix, const char * localName) {
+
+		if (prefix[0] == '\0') {
+			qname = localName;
+		}
+		else {
+			qname = prefix;
+			qname.sbStrcatIn(":");
+			qname.sbStrcatIn(localName);
+		}
+
+		return qname;
+
+	}
+	safeBuffer &makeQName(safeBuffer & qname, const XMLCh *prefix, const char * localName) {
+
+		if (prefix == NULL || prefix[0] == 0) {
+			qname.sbTranscodeIn(localName);
+		}
+		else {
+			qname.sbXMLChIn(prefix);
+			qname.sbXMLChAppendCh(XERCES_CPP_NAMESPACE_QUALIFIER chColon);
+			qname.sbXMLChCat(localName);	// Will transcode
+		}
+
+		return qname;
+	}
+
+	safeBuffer &makeQName(safeBuffer & qname, const XMLCh *prefix, const XMLCh * localName) {
+
+		if (prefix == NULL || prefix[0] == 0) {
+			qname.sbXMLChIn(localName);
+		}
+		else {
+			qname.sbXMLChIn(prefix);
+			qname.sbXMLChAppendCh(XERCES_CPP_NAMESPACE_QUALIFIER chColon);
+			qname.sbXMLChCat(localName);
+		}
+
+		return qname;
+	}
+
+	void makeHexByte(XMLCh * h, unsigned char b) {
+
+		unsigned char toConvert =  (b & 0xf0);
+		toConvert = (toConvert >> 4);
+
+		if (toConvert < 10)
+			h[0] = chDigit_0 + toConvert;
+		else
+			h[0] = chLatin_a + toConvert - 10;
+
+		toConvert =  (b & 0xf);
+
+		if (toConvert < 10)
+			h[1] = chDigit_0 + toConvert;
+		else
+			h[1] = chLatin_a + toConvert - 10;
+
+	}
+
+	XMLCh * generateId(unsigned int bytes) {
+
+		unsigned char b[128];
+		XMLCh id[258];
+		unsigned int toGen = (bytes > 128 ? 16 : bytes);
+
+		// Get the appropriate amount of random data
+		// Need to zeroise to ensure valgrind is happy
+		memset(b, 0, 128);
+		memset(id, 0, sizeof(id));
+		if (XSECPlatformUtils::g_cryptoProvider->getRandom(b, toGen) != toGen) {
+
+			throw XSECException(XSECException::CryptoProviderError,
+				"generateId - could not obtain enough random");
+
+		}
+
+		id[0] = chLatin_I;
+
+		unsigned int i;
+		for (i = 0; i < toGen; ++i) {
+
+			makeHexByte(&id[1+(i*2)], b[i]);
+
+		}
+
+		id[1+(i*2)] = chNull;
+
+		return XMLString::replicate(id);
+
+	}
+#endif
+
 	//Quick fix: Unreadable snippet to convert typical western languages characters
 	//to UTF-8, blame stackoverflow: http://stackoverflow.com/a/4059934/9906
 	void latin1_to_utf8(unsigned char * in, unsigned char *out)
@@ -271,14 +373,21 @@ char *X509_to_PEM(X509 *x509) {
         return NULL;
     }
 
-    pem = (char *) malloc( bio->num_write + 1 );
+    uint64_t num_write = 0;
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+    num_write = bio->num_write;
+#else
+    num_write = BIO_number_written(bio);
+#endif
+    pem = (char *) malloc( num_write + 1 );
+
     if ( NULL == pem ){
         BIO_free(bio);
         return NULL;
     }
 
-    memset( pem, 0, bio->num_write + 1 );
-    BIO_read( bio, pem, bio->num_write );
+    memset( pem, 0, num_write + 1 );
+    BIO_read( bio, pem, num_write );
     BIO_free( bio );
 
     return pem;

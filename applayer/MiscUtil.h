@@ -33,6 +33,15 @@
 #include "TLVBuffer.h"
 #include <openssl/x509.h>
 
+// XSEC
+//#include <xsec/framework/XSECDefs.hpp>
+// Required to keep functions makeQName() working
+// Starting libxml-security-c v2.0.0+ makeQName() functions became internal.
+#if _XSEC_VERSION_FULL >= 20000L
+#pragma message("libxml-security-c v2 detected!")
+#include <xsec/utils/XSECSafeBuffer.hpp>
+#endif
+
 namespace eIDMW
 {
 
@@ -59,6 +68,19 @@ const void *memmem(const void *haystack, size_t n, const void *needle, size_t m)
 //Implementation of some utility functions over POSIX and Win32
 char * Basename(char *absolute_path);
 int Truncate(const char *path);
+
+#if _XSEC_VERSION_FULL >= 20000L
+// --------------------------------------------------------------------------------
+//           Make a QName
+// --------------------------------------------------------------------------------
+
+safeBuffer &makeQName(safeBuffer & qname, safeBuffer &prefix, const char * localName);
+safeBuffer &makeQName(safeBuffer & qname, const XMLCh *prefix, const char * localName);
+safeBuffer &makeQName(safeBuffer & qname, const XMLCh *prefix, const XMLCh * localName);
+void makeHexByte(XMLCh * h, unsigned char b);
+XMLCh * generateId(unsigned int bytes);
+#endif
+
 //Charset conversion
 void latin1_to_utf8(unsigned char * in, unsigned char *out);
 char * utf8_to_latin1(char * in);
