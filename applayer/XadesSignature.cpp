@@ -310,7 +310,7 @@ std::basic_string<XMLCh> generateNodeID()
 
 	std::basic_string<XMLCh> id_buffer;
 	id_buffer.append(XMLString::transcode("xades-"));
-	id_buffer.append(XMLString::replicate(id));
+	id_buffer.append(generateId(20));
 
 	return id_buffer;
 }
