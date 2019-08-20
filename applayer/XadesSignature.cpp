@@ -48,7 +48,12 @@
 #include <xercesc/util/Janitor.hpp>
 
 // XML-Security-C (XSEC)
-
+#include <xsec/framework/XSECDefs.hpp>
+#if _XSEC_VERSION_FULL < 20000L
+#include <xsec/utils/XSECDOMUtils.hpp>
+#else
+#include <xsec/utils/XSECPlatformUtils.hpp>
+#endif
 #include <xsec/framework/XSECProvider.hpp>
 #include <xsec/framework/XSECException.hpp>
 #include <xsec/dsig/DSIGReference.hpp>
@@ -63,7 +68,7 @@
 #include <xsec/enc/XSECCryptoUtils.hpp>
 #include <xsec/enc/XSECCryptoException.hpp>
 #include <xsec/utils/XSECBinTXFMInputStream.hpp>
-#include <xsec/utils/XSECDOMUtils.hpp>
+#include <xsec/utils/XSECSafeBuffer.hpp>
 #include <xsec/transformers/TXFMBase.hpp>
 #include <xsec/transformers/TXFMChain.hpp>
 
@@ -279,9 +284,33 @@ namespace eIDMW
 
 std::basic_string<XMLCh> generateNodeID()
 {
+        unsigned char b[128];
+        XMLCh id[258];
+        unsigned int toGen = 20;
+
+        // Get the appropriate amount of random data
+        // Need to zeroise to ensure valgrind is happy
+        memset(b, 0, 128);
+        memset(id, 0, sizeof(id));
+        if (XSECPlatformUtils::g_cryptoProvider->getRandom(b, toGen) != toGen) {
+                throw XSECException(XSECException::CryptoProviderError,
+                        "generateId - could not obtain enough random");
+        }
+
+        id[0] = chLatin_I;
+
+        unsigned int i;
+        for (i = 0; i < toGen; ++i) {
+                makeHexByte(&id[1+(i*2)], b[i]);
+        }
+
+        id[1+(i*2)] = chNull;
+
+
+
 	std::basic_string<XMLCh> id_buffer;
 	id_buffer.append(XMLString::transcode("xades-"));
-	id_buffer.append(generateId(20));
+	id_buffer.append(XMLString::replicate(id));
 
 	return id_buffer;
 }
@@ -394,11 +423,11 @@ std::basic_string<XMLCh> createSignedPropertiesURI()
 		if (tmpElt == NULL) {
 			// Need to create the underlying TEXT_NODE
 			//DOMDocument * doc = signatureValueNode->getOwnerDocument();
-			tmpElt = doc->createTextNode(MAKE_UNICODE_STRING((char *) base64Sig));
+			tmpElt = doc->createTextNode(XMLString::transcode((char *) base64Sig));
 			signatureValueNode->appendChild(tmpElt);
 		}
 		else {
-			tmpElt->setNodeValue(MAKE_UNICODE_STRING((char *) base64Sig));
+			tmpElt->setNodeValue(XMLString::transcode((char *) base64Sig));
 
 		}
 
@@ -577,7 +606,7 @@ int XadesSignature::HashSignedInfoNode(XERCES_NS DOMDocument *doc, XMLByte *hash
 
     string c14n;
     unsigned char buffer[1024];
-    xsecsize_t bytes = 0;
+    XMLSize_t bytes = 0;
     while((bytes = canonicalizer.outputBuffer(buffer, 1024)) > 0)
     {
         c14n.append( (char*)&buffer[0], size_t(bytes));
@@ -632,7 +661,7 @@ int XadesSignature::HashSignedPropertiesNode(XERCES_NS DOMDocument *doc, XMLByte
 
     string c14n;
     unsigned char buffer[1024];
-    xsecsize_t bytes = 0;
+    XMLSize_t bytes = 0;
     while((bytes = canonicalizer.outputBuffer(buffer, 1024)) > 0)
     {
         c14n.append( (char*)&buffer[0], size_t(bytes));
@@ -897,7 +926,7 @@ std::string canonicalNode(DOMNode *node, XERCES_NS DOMDocument *doc)
 
     string c14n;
     unsigned char buffer[1024];
-    xsecsize_t bytes = 0;
+    XMLSize_t bytes = 0;
     while((bytes = canonicalizer.outputBuffer(buffer, 1024)) > 0)
     {
         c14n.append((char*)&buffer[0], size_t(bytes));
@@ -1130,11 +1159,11 @@ void XadesSignature::setReferenceHash(XMLByte *hash, unsigned int hash_len, int 
 		if (tmpElt == NULL) {
 			// Need to create the underlying TEXT_NODE
 			//DOMDocument *doc = mp_referenceNode->getOwnerDocument();
-			tmpElt = doc->createTextNode(MAKE_UNICODE_STRING((char *) base64Hash));
+			tmpElt = doc->createTextNode(XMLString::transcode((char *) base64Hash));
 			node_digest_value->appendChild(tmpElt);
 		}
 		else {
-			tmpElt->setNodeValue(MAKE_UNICODE_STRING((char *) base64Hash));
+			tmpElt->setNodeValue(XMLString::transcode((char *) base64Hash));
 		}
 	}
 
@@ -1164,10 +1193,10 @@ CByteArray &XadesSignature::Sign(const char ** paths, unsigned int n_paths)
 	// unsigned char signature_hash[SHA1_LEN];
 
         DOMImplementation *impl =
-		DOMImplementationRegistry::getDOMImplementation(MAKE_UNICODE_STRING("Core"));
+		DOMImplementationRegistry::getDOMImplementation(XMLString::transcode("Core"));
 
-	//XERCES_NS XERCES_NS DOMDocument *doc = impl->createDocument(MAKE_UNICODE_STRING(ASIC_NAMESPACE), MAKE_UNICODE_STRING("asic:XAdESSignatures"), NULL);
-	XERCES_NS DOMDocument *doc = impl->createDocument(NULL, MAKE_UNICODE_STRING("Document"), NULL);
+	//XERCES_NS XERCES_NS DOMDocument *doc = impl->createDocument(XMLString::transcode(ASIC_NAMESPACE), XMLString::transcode("asic:XAdESSignatures"), NULL);
+	XERCES_NS DOMDocument *doc = impl->createDocument(NULL, XMLString::transcode("Document"), NULL);
 	DOMElement *rootElem = doc->getDocumentElement();
 
 
@@ -1178,26 +1207,27 @@ CByteArray &XadesSignature::Sign(const char ** paths, unsigned int n_paths)
 		// Create a signature object
 
 		sig = prov.newSignature();
-		//sig->setDSIGNSPrefix(MAKE_UNICODE_STRING("ds"));
+		//sig->setDSIGNSPrefix(XMLString::transcode("ds"));
 
 		// Use it to create a blank signature DOM structure from the doc
-		sigNode = sig->createBlankSignature(doc, CANON_C14NE_NOC, SIGNATURE_RSA, HASH_SHA256);
+/* 		sigNode = sig->createBlankSignature(doc, CANON_C14NE_NOC, SIGNATURE_RSA, HASH_SHA256); */
+        sigNode = sig->createBlankSignature(doc, DSIGConstants::s_unicodeStrURIC14N_NOC, DSIGConstants::s_unicodeStrURIHMAC_SHA256);
 
 		//Add Id attribute to signature
 		//signature_id = (XMLCh*)generateNodeID().c_str();
 		sigNode->setAttribute(s_Id, (XMLCh*)signature_id.c_str());
 
 		// Insert the signature DOM nodes into the doc
-		rootElem->appendChild(doc->createTextNode(MAKE_UNICODE_STRING("\n")));
+		rootElem->appendChild(doc->createTextNode(XMLString::transcode("\n")));
 		rootElem->appendChild(sigNode);
-		rootElem->appendChild(doc->createTextNode(MAKE_UNICODE_STRING("\n")));
+		rootElem->appendChild(doc->createTextNode(XMLString::transcode("\n")));
 
 		int references_count = 0;
 		for (unsigned int i = 0; i != n_paths ; i++)
 		{
 			const char * path = paths[i];
 			//Create a reference to the external file
-			DSIGReference * ref = sig->createReference(createURI(path), HASH_SHA256);
+			DSIGReference * ref = sig->createReference(createURI(path), DSIGConstants::s_unicodeStrURIHMAC_SHA256);
 			MWLOG(LEV_DEBUG, MOD_APL, "SignXades(): Hashing file %s", path);
 			sha1_hash = HashFile(path);
 
@@ -1215,7 +1245,7 @@ CByteArray &XadesSignature::Sign(const char ** paths, unsigned int n_paths)
 
 		HashSignedPropertiesNode(sig->getParentDocument(), sha1_hash_signed_props);
 
-		DSIGReference * ref_signed_props = sig->createReference(createSignedPropertiesURI().c_str(), HASH_SHA256);
+		DSIGReference * ref_signed_props = sig->createReference(createSignedPropertiesURI().c_str(), DSIGConstants::s_unicodeStrURIHMAC_SHA256);
 		ref_signed_props->setType(XMLString::transcode("http://uri.etsi.org/01903#SignedProperties"));
 
 		setReferenceHash(sha1_hash_signed_props, SHA256_LEN, references_count, doc);
