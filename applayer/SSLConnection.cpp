@@ -885,7 +885,13 @@ void SSLConnection::connect_encrypted(char* host_and_port)
     /* Set up the SSL pointers */
 
     /* TLS v1.2 is not supported at the moment as it uses different hash functions for the client challenge */
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
     SSL_CTX *ctx = SSL_CTX_new(TLSv1_1_client_method());
+#else
+    SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
+    SSL_CTX_set_min_proto_version(ctx, TLS1_1_VERSION);
+    SSL_CTX_set_max_proto_version(ctx, TLS1_1_VERSION);
+#endif
 
     SSL_CTX_set_mode(ctx, SSL_MODE_AUTO_RETRY);
 
@@ -980,12 +986,24 @@ void SSLConnection::connect_encrypted(char* host_and_port)
 
     RSA *rsa = RSA_new();
 
+
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
     rsa->flags |= RSA_FLAG_SIGN_VER;
 
     RSA_METHOD *current_method = (RSA_METHOD *)RSA_PKCS1_SSLeay();
     current_method->rsa_sign = eIDMW::rsa_sign;
     current_method->flags |= RSA_FLAG_SIGN_VER;
     current_method->flags |= RSA_METHOD_FLAG_NO_CHECK;
+#else
+    //rsa->flags |= RSA_FLAG_SIGN_VER;
+    RSA_METHOD *current_method = (RSA_METHOD *)RSA_get_default_method();
+    RSA_meth_set_sign(current_method,eIDMW::rsa_sign);
+    int rsa_meth_flags=0;
+    rsa_meth_flags = RSA_meth_get_flags(current_method);
+    //rsa_meth_flags |= RSA_FLAG_SIGN_VER;
+    rsa_meth_flags |= RSA_METHOD_FLAG_NO_CHECK;
+    RSA_meth_set_flags(current_method,rsa_meth_flags);
+#endif
 
     RSA_set_method(rsa, current_method);
 
