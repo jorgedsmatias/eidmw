@@ -373,22 +373,22 @@ protected:
 	/**
 	  * Convert ASN1_TIME into string
 	  */
-	void TimeToString(ASN1_TIME *asn1Time, std::string &strTime, const char *format);
+	void TimeToString(const ASN1_TIME *asn1Time, std::string &strTime, const char *format);
 
 	/**
 	  * Convert ASN1_GENERALIZEDTIME into struct tm
 	  */
-	void GeneralTimeToString(ASN1_GENERALIZEDTIME *asn1Time, struct tm &timeinfo);
+	void GeneralTimeToString(const ASN1_GENERALIZEDTIME *asn1Time, struct tm &timeinfo);
 
 	/**
 	  * Convert ASN1_GENERALIZEDTIME into char*
 	  */
-	void GeneralTimeToBuffer(ASN1_GENERALIZEDTIME *asn1Time, char* buffer,size_t bufferSize);
+	void GeneralTimeToBuffer(const ASN1_GENERALIZEDTIME *asn1Time, char* buffer,size_t bufferSize);
 
 	/**
 	  * Convert ASN1_UTCTIME into struct tm
 	  */
-	void UtcTimeToString(ASN1_UTCTIME *asn1Time, struct tm &timeinfo);
+	void UtcTimeToString(const ASN1_UTCTIME *asn1Time, struct tm &timeinfo);
 
 
 	/**

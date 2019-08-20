@@ -296,9 +296,13 @@ bool APL_CryptoFwk::VerifyCrlDateValidity(const X509_CRL *pX509_Crl)
 	  throw CMWEXCEPTION(EIDMW_ERR_CHECK);
 
 	//The current time must be between notBefore and notAfter
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	if(X509_cmp_current_time(X509_CRL_get_lastUpdate(pX509_Crl))<=0
 		&& X509_cmp_current_time(X509_CRL_get_nextUpdate(pX509_Crl))>=0)
-
+#else
+	if(X509_cmp_current_time(X509_CRL_get0_lastUpdate(pX509_Crl))<=0
+		&& X509_cmp_current_time(X509_CRL_get0_nextUpdate(pX509_Crl))>=0)
+#endif
 		bOk=true;
 
 	return bOk;
@@ -444,19 +448,37 @@ bool APL_CryptoFwk::VerifyCertSignature(X509 *pX509_Cert,X509 *pX509_Issuer)
 
 	//Convert pX509_Cert->cert_info into unsigned char * and then into CByteArray
 	unsigned char *pucInfo,*pucInfoNext;
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	long lLen=i2d_X509_CINF(pX509_Cert->cert_info,NULL); //Get the length for the buffer
+#else
+	long lLen=i2d_re_X509_tbs(pX509_Cert,NULL);
+#endif
 	if(lLen > 0)
 	{
 		OpenSSL_add_all_digests();
-		//Convert the signature into CByteArray
-		CByteArray signature(pX509_Cert->signature->data,pX509_Cert->signature->length);
+
 		pucInfo = pucInfoNext = (unsigned char *)malloc(lLen);	//Allocate the buffer
+
+		//Convert the signature into CByteArray
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+		CByteArray signature(pX509_Cert->signature->data,pX509_Cert->signature->length);
 		i2d_X509_CINF(pX509_Cert->cert_info,&pucInfoNext);		//Fill the buffer
+#else
+		const ASN1_BIT_STRING *sig = NULL;
+		const X509_ALGOR *sigalg = NULL;
+		X509_get0_signature(&sig,&sigalg,pX509_Cert);
+		CByteArray signature(sig->data,sig->length);
+		i2d_re_X509_tbs(pX509_Cert,&pucInfoNext);
+#endif
 		CByteArray certinfo(pucInfo,lLen);						//Fill the CByteArray
 		free(pucInfo);											//Free buffer
 
 		const EVP_MD *algorithm;
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 		int i=OBJ_obj2nid(pX509_Cert->sig_alg->algorithm);
+#else
+		int i=OBJ_obj2nid(sigalg->algorithm);
+#endif
 		const char *algoName=OBJ_nid2sn(i);
 		algorithm=EVP_get_digestbyname(algoName);
 		if(algorithm==NULL)
@@ -478,14 +500,27 @@ bool APL_CryptoFwk::VerifyCrlSignature(X509_CRL *pX509_Crl,X509 *pX509_Issuer)
 
 	//Convert pX509_Crl into unsigned char * and then into CByteArray
 	unsigned char *pucCrl,*pucCrlNext;
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	long lLen=i2d_X509_CRL_INFO(pX509_Crl->crl,NULL); //Get the length for the buffer
+#else
+	long lLen=i2d_re_X509_CRL_tbs(pX509_Crl,NULL);
+#endif
 	if(lLen > 0)
 	{
-		//Convert the signature into CByteArray
-		CByteArray signature(pX509_Crl->signature->data,pX509_Crl->signature->length);
-
 		pucCrl = pucCrlNext = (unsigned char *)malloc(lLen);	//Allocate the buffer
+
+		//Convert the signature into CByteArray
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+		CByteArray signature(pX509_Crl->signature->data,pX509_Crl->signature->length);
 		i2d_X509_CRL_INFO(pX509_Crl->crl,&pucCrlNext);		//Fill the buffer
+#else
+		const ASN1_BIT_STRING *sig = NULL;
+		const X509_ALGOR *sigalg = NULL;
+		X509_CRL_get0_signature(pX509_Crl,&sig,&sigalg);
+		CByteArray signature(sig->data,sig->length);
+		i2d_re_X509_CRL_tbs(pX509_Crl,&pucCrlNext);
+#endif
+
 		CByteArray crl(pucCrl,lLen);						//Fill the CByteArray
 		free(pucCrl);										//Free buffer
 
@@ -567,14 +602,23 @@ bool APL_CryptoFwk::GetHash(const CByteArray &data, const EVP_MD *algorithm, CBy
 	if(hash==NULL)
 		throw CMWEXCEPTION(EIDMW_ERR_CHECK);
 
-	EVP_MD_CTX cmd_ctx;
 	unsigned char md_value[EVP_MAX_MD_SIZE] = {0};
 	unsigned int md_len = 0;
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+	EVP_MD_CTX cmd_ctx;
 	//Calculate the hash from the data
 	EVP_DigestInit(&cmd_ctx, algorithm);
-    EVP_DigestUpdate(&cmd_ctx, data.GetBytes(), data.Size());
-    EVP_DigestFinal(&cmd_ctx, md_value, &md_len);
+	EVP_DigestUpdate(&cmd_ctx, data.GetBytes(), data.Size());
+	EVP_DigestFinal(&cmd_ctx, md_value, &md_len);
+#else
+	EVP_MD_CTX *cmd_ctx = EVP_MD_CTX_new();
+	//Calculate the hash from the data
+	EVP_DigestInit(cmd_ctx, algorithm);
+	EVP_DigestUpdate(cmd_ctx, data.GetBytes(), data.Size());
+	EVP_DigestFinal(cmd_ctx, md_value, &md_len);
+	EVP_MD_CTX_free(cmd_ctx);
+#endif
 
 	//Copy the hash in the ByteArray
 	hash->ClearContents();
@@ -609,25 +653,34 @@ bool APL_CryptoFwk::VerifySignature(const CByteArray &data, const CByteArray &si
  	if(pX509==NULL)
 		throw CMWEXCEPTION(EIDMW_ERR_CHECK);
 
-    EVP_MD_CTX cmd_ctx;
-    EVP_PKEY *pKey = NULL;
- 	const unsigned char *pucSign=NULL;
+	EVP_PKEY *pKey = NULL;
+	const unsigned char *pucSign=NULL;
 	long ret;
 
-	//Get the public key
-    if (NULL == (pKey = X509_get_pubkey(pX509)))
-        throw CMWEXCEPTION(EIDMW_ERR_CHECK);
+	pucSign=signature.GetBytes();
 
+	//Get the public key
+	if (NULL == (pKey = X509_get_pubkey(pX509)))
+		throw CMWEXCEPTION(EIDMW_ERR_CHECK);
+
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+	EVP_MD_CTX cmd_ctx;
 	//VERIFY THE DATA-SIGNATURE with public key
 	EVP_VerifyInit(&cmd_ctx, algorithm);
-    EVP_VerifyUpdate(&cmd_ctx, data.GetBytes(), data.Size());
-
-	pucSign=signature.GetBytes();
+	EVP_VerifyUpdate(&cmd_ctx, data.GetBytes(), data.Size());
 	ret = EVP_VerifyFinal(&cmd_ctx, pucSign, signature.Size(), pKey);
-
 	EVP_MD_CTX_cleanup(&cmd_ctx);
+#else
+	EVP_MD_CTX *cmd_ctx = EVP_MD_CTX_new();
+	//VERIFY THE DATA-SIGNATURE with public key
+	EVP_VerifyInit(cmd_ctx, algorithm);
+	EVP_VerifyUpdate(cmd_ctx, data.GetBytes(), data.Size());
+	ret = EVP_VerifyFinal(cmd_ctx, pucSign, signature.Size(), pKey);
+	EVP_MD_CTX_free(cmd_ctx);
+#endif
+
  	//Free openSSL object
-    EVP_PKEY_free(pKey);
+ 	EVP_PKEY_free(pKey);
 
 	return (ret==1);
 }
@@ -664,9 +717,10 @@ FWK_CertifStatus APL_CryptoFwk::CRLValidation(const CByteArray &cert,const CByte
 		goto cleanup;
 	}
 
-    pRevokeds = X509_CRL_get_REVOKED(pX509Crl);
-    if(pRevokeds)
+	pRevokeds = X509_CRL_get_REVOKED(pX509Crl);
+	if(pRevokeds)
 	{
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 		for(int i = 0; i < sk_X509_REVOKED_num(pRevokeds); i++)
 		{
 			X509_REVOKED *pRevoked = sk_X509_REVOKED_value(pRevokeds, i);
@@ -676,6 +730,12 @@ FWK_CertifStatus APL_CryptoFwk::CRLValidation(const CByteArray &cert,const CByte
 				break;
 			}
 		}
+#else
+		X509_REVOKED *pRevoked = NULL;
+		ASN1_INTEGER *serial = X509_get_serialNumber(pX509);
+		X509_CRL_get0_by_serial(pX509Crl,&pRevoked,serial);
+		if(pRevoked != NULL) bFound=true;
+#endif
 	}
 
 	if(bFound)
@@ -685,7 +745,7 @@ FWK_CertifStatus APL_CryptoFwk::CRLValidation(const CByteArray &cert,const CByte
 
 cleanup:
 	//Free openSSL object
-    if(pX509) X509_free(pX509);
+	if(pX509) X509_free(pX509);
 
 	return eStatus;
 }
@@ -776,6 +836,12 @@ FWK_CertifStatus APL_CryptoFwk::GetOCSPResponse(const char *pUrlResponder,const 
 	FWK_CertifStatus eStatus=FWK_CERTIF_STATUS_UNCHECK;
 	OCSP_RESPONSE *pOcspResponse=NULL;
 	int nid = 0;
+	const EVP_MD *dgst = NULL;
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	X509_NAME *issuerName = NULL;
+	ASN1_BIT_STRING *issuerKey = NULL;
+	ASN1_INTEGER *serial = NULL;
+#endif
 
 	if(issuer)
 	{
@@ -791,19 +857,22 @@ FWK_CertifStatus APL_CryptoFwk::GetOCSPResponse(const char *pUrlResponder,const 
 	}
 
 	//Convert tOcspCertID into OCSP_CERTID
-
 	switch(certid.hashAlgorithm)
 	{
-	case FWK_ALGO_MD5:
-		nid = EVP_MD_type(EVP_md5());
-		break;
-	case FWK_ALGO_SHA1:
-		nid = EVP_MD_type(EVP_sha1());
-		break;
-	case FWK_ALGO_SHA256:
-		nid = EVP_MD_type(EVP_sha256());
-		break;	
+		case FWK_ALGO_MD5: {
+			dgst = EVP_md5();
+			break;
+		}
+		case FWK_ALGO_SHA1: {
+			dgst = EVP_sha1();
+			break;
+		}
+		case FWK_ALGO_SHA256: {
+			dgst = EVP_sha256();
+			break;
+		}
 	}
+	nid = EVP_MD_type(dgst);
 
 	if (!(astype = ASN1_TYPE_new()))
 	{
@@ -858,6 +927,7 @@ FWK_CertifStatus APL_CryptoFwk::GetOCSPResponse(const char *pUrlResponder,const 
 		memcpy(tucTmp, certid. serialNumber->GetBytes(), certid. serialNumber->Size());
 	ASN1_OCTET_STRING_set(serialNumber,tucTmp,certid.serialNumber->Size());
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	if (!(pCertID = OCSP_CERTID_new()))
 	{
 		eStatus=FWK_CERTIF_STATUS_ERROR;
@@ -868,6 +938,17 @@ FWK_CertifStatus APL_CryptoFwk::GetOCSPResponse(const char *pUrlResponder,const 
 	pCertID->issuerNameHash=issuerNameHash;
 	pCertID->issuerKeyHash=issuerKeyHash;
 	pCertID->serialNumber=serialNumber;
+#else
+	issuerName = X509_get_subject_name(pX509_Issuer);
+	issuerKey = X509_get0_pubkey_bitstr(pX509_Issuer);
+	serial = X509_get_serialNumber(pX509_Issuer);
+	pCertID=OCSP_cert_id_new(dgst, issuerName, issuerKey, serial);
+	if (!(pCertID))
+	{
+		eStatus=FWK_CERTIF_STATUS_ERROR;
+		goto cleanup;
+	}
+#endif
 
 	try
 	{
@@ -975,6 +1056,7 @@ FWK_CertifStatus APL_CryptoFwk::GetOCSPResponse(const char *pUrlResponder,OCSP_C
     X509_STORE_CTX *verify_ctx = NULL;
     OCSP_REQUEST  *pRequest = 0;
     OCSP_BASICRESP *pBasic = NULL;
+    ASN1_OCTET_STRING *pBasicRespSignature = NULL;
     X509_STORE *store = NULL;
     bool  bConnect = false;
     bool useProxy = false;
@@ -1157,14 +1239,22 @@ FWK_CertifStatus APL_CryptoFwk::GetOCSPResponse(const char *pUrlResponder,OCSP_C
 		{
 			//Get the algorithm
 			const EVP_MD *algorithm;
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 			int i=OBJ_obj2nid(pBasic->signatureAlgorithm->algorithm);
+#else
+			int i=OBJ_obj2nid(OCSP_resp_get0_tbs_sigalg(pBasic)->algorithm);
+#endif
 			const char *algoName=OBJ_nid2sn(i);
 			algorithm=EVP_get_digestbyname(algoName);
 			if(algorithm==NULL)
 				algorithm=EVP_sha1();
 
 			//Get the Data of the response
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 			long lLen = i2d_OCSP_RESPDATA(pBasic->tbsResponseData,NULL); //Get the length for the buffer
+#else
+			long lLen = i2d_OCSP_RESPDATA((OCSP_RESPDATA *) OCSP_resp_get0_respdata(pBasic),NULL); //Get the length for the buffer
+#endif
 			if(lLen <= 0)
 			{
 				eStatus=FWK_CERTIF_STATUS_ERROR;
@@ -1174,16 +1264,29 @@ FWK_CertifStatus APL_CryptoFwk::GetOCSPResponse(const char *pUrlResponder,OCSP_C
 			unsigned char *pucBuffer=NULL;
 			unsigned char *pucBufferNext=NULL;
 			pucBuffer = pucBufferNext = (unsigned char *)malloc(lLen);		//Allocate the buffer
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 			i2d_OCSP_RESPDATA(pBasic->tbsResponseData,&pucBufferNext);		//Fill the buffer
+#else
+			i2d_OCSP_RESPDATA((OCSP_RESPDATA *) OCSP_resp_get0_respdata(pBasic),&pucBufferNext);	//Fill the buffer
+#endif
 			CByteArray baData(pucBuffer,lLen);								//Fill the CByteArray
 			free(pucBuffer);												//Free buffer
 
 			//Get the signature
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 			CByteArray baSignature(pBasic->signature->data,pBasic->signature->length);
+#else
+			pBasicRespSignature = (ASN1_OCTET_STRING *) OCSP_resp_get0_signature(pBasic);
+			CByteArray baSignature(pBasicRespSignature->data,pBasicRespSignature->length);
+#endif
 
 			//We check the certificate in the response to see if has correctly signed the response
 			//and for this certificate we check if the issuer was the one we have
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 			STACK_OF(X509) *pX509s = pBasic->certs;
+#else
+			STACK_OF(X509) *pX509s = (STACK_OF(X509) *) OCSP_resp_get0_certs(pBasic);
+#endif
 			X509 *pX509 = NULL;
 			bool bFound = false;
 
@@ -1320,7 +1423,11 @@ char *APL_CryptoFwk::GetOCSPUrl(X509 *pX509_Cert)
             GENERAL_NAME *pName = pAccess->location;
             if(pName != NULL && pName->type == GEN_URI)
             {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
                 pData = (const char *)ASN1_STRING_data(pName->d.uniformResourceIdentifier);
+#else
+                pData = (const char *)ASN1_STRING_get0_data(pName->d.uniformResourceIdentifier);
+#endif
                 bFound = true;
 				break;
             }
@@ -1389,7 +1496,11 @@ char *APL_CryptoFwk::GetCDPUrl(X509 *pX509_Cert)
                     GENERAL_NAME *pName = sk_GENERAL_NAME_value(pNames, i);
                     if(pName != NULL && pName->type == GEN_URI )
                     {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
                         pData = (const char *)ASN1_STRING_data(pName->d.uniformResourceIdentifier);
+#else
+                        pData = (const char *)ASN1_STRING_get0_data(pName->d.uniformResourceIdentifier);
+#endif
                         bFound = true;
 						break;
                     }
@@ -1458,14 +1569,22 @@ bool APL_CryptoFwk::getCrlInfo(const CByteArray &crl,tCrlInfo &info, const char 
 
 	int iCheck = 0;
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	iCheck = X509_cmp_time(X509_CRL_get_lastUpdate(pX509CRL), NULL);
+#else
+	iCheck = X509_cmp_time(X509_CRL_get0_lastUpdate(pX509CRL), NULL);
+#endif
 	if (iCheck >= 0)
 	{
 		// X509_V_ERR_CRL_NOT_YET_VALID or X509_V_ERR_ERROR_IN_CRL_LAST_UPDATE_FIELD error
 		bDownload = false;
 	}
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	iCheck = X509_cmp_time(X509_CRL_get_nextUpdate(pX509CRL), NULL);
+#else
+	iCheck = X509_cmp_time(X509_CRL_get0_nextUpdate(pX509CRL), NULL);
+#endif
 	if (iCheck <= 0)
 	{
 		// X509_V_ERR_CRL_HAS_EXPIRED or X509_V_ERR_ERROR_IN_CRL_NEXT_UPDATE_FIELD error
@@ -1479,9 +1598,13 @@ bool APL_CryptoFwk::getCrlInfo(const CByteArray &crl,tCrlInfo &info, const char 
 	info.issuerName=szTemp;
 	//info.issuerName=X509_CRL_get_issuer(pX509CRL);
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	TimeToString(X509_CRL_get_lastUpdate(pX509CRL),info.validityLastUpdate,dateFormat);
 	TimeToString(X509_CRL_get_nextUpdate(pX509CRL),info.validityNextUpdate,dateFormat);
-
+#else
+	TimeToString(X509_CRL_get0_lastUpdate(pX509CRL),info.validityLastUpdate,dateFormat);
+	TimeToString(X509_CRL_get0_nextUpdate(pX509CRL),info.validityNextUpdate,dateFormat);
+#endif
 	return bDownload;
 }
 
@@ -1540,7 +1663,14 @@ BIO *APL_CryptoFwk::Connect(char *pszHost, int iPort, int iSSL, SSL_CTX **ppSSLC
 		SSL_load_error_strings();
 		ERR_load_BIO_strings();
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 		SSL_CTX *pSSLCtx = SSL_CTX_new(TLSv1_1_client_method());
+#else
+		// TLSv1_1_client_method() deprecated in OpenSSL v1.1
+		SSL_CTX *pSSLCtx = SSL_CTX_new(TLS_client_method());
+		SSL_CTX_set_min_proto_version(pSSLCtx,TLS1_1_VERSION);
+		SSL_CTX_set_max_proto_version(pSSLCtx,TLS1_1_VERSION);
+#endif
 		X509_STORE *store = SSL_CTX_get_cert_store(pSSLCtx);
 
 		loadWindowsRootCertificates(store);
@@ -1568,8 +1698,14 @@ BIO *APL_CryptoFwk::Connect(char *pszHost, int iPort, int iSSL, SSL_CTX **ppSSLC
 		}
 	}
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	BIO_set_conn_int_port(pConnect, &iPort);
-		//Set BIO as nonblocking
+#else
+	char buffer[11];
+	sprintf_s(buffer,sizeof(buffer),"%ld",iPort);
+	BIO_set_conn_port(pConnect, iPort);
+#endif
+	//Set BIO as nonblocking
 	BIO_set_nbio(pConnect, 1);
 
 	int rv = BIO_do_connect(pConnect);
@@ -1719,7 +1855,7 @@ bool APL_CryptoFwk::b64Decode(const CByteArray &baIn, CByteArray &baOut)
 	return true;
 }
 
-void APL_CryptoFwk::TimeToString(ASN1_TIME *asn1Time, std::string &strTime, const char *dateFormat)
+void APL_CryptoFwk::TimeToString(const ASN1_TIME *asn1Time, std::string &strTime, const char *dateFormat)
 {
         struct tm timeinfo = {0};
         char buffer [50];
@@ -1743,7 +1879,7 @@ void APL_CryptoFwk::TimeToString(ASN1_TIME *asn1Time, std::string &strTime, cons
 	}
 }
 
-void APL_CryptoFwk::GeneralTimeToBuffer(ASN1_GENERALIZEDTIME *asn1Time, char* buffer,size_t bufferSize)
+void APL_CryptoFwk::GeneralTimeToBuffer(const ASN1_GENERALIZEDTIME *asn1Time, char* buffer,size_t bufferSize)
 {
 	char *v;
 	int i;
@@ -1773,7 +1909,7 @@ void APL_CryptoFwk::GeneralTimeToBuffer(ASN1_GENERALIZEDTIME *asn1Time, char* bu
 
 }
 
-void APL_CryptoFwk::GeneralTimeToString(ASN1_GENERALIZEDTIME *asn1Time, struct tm &timeinfo)
+void APL_CryptoFwk::GeneralTimeToString(const ASN1_GENERALIZEDTIME *asn1Time, struct tm &timeinfo)
 {
 	char *v;
 	int gmt=0;
@@ -1808,7 +1944,7 @@ void APL_CryptoFwk::GeneralTimeToString(ASN1_GENERALIZEDTIME *asn1Time, struct t
 		timeinfo.tm_sec=  (v[12]-'0')*10+(v[13]-'0');
 }
 
-void APL_CryptoFwk::UtcTimeToString(ASN1_UTCTIME *asn1Time, struct tm &timeinfo)
+void APL_CryptoFwk::UtcTimeToString(const ASN1_UTCTIME *asn1Time, struct tm &timeinfo)
 {
 	char *v;
 	int gmt=0;
