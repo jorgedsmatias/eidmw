@@ -52,16 +52,25 @@ ns1__AttributeType *convertAttributeType(ns3__AttributeType *, soap *);
 unsigned int SHA256_Wrapper(unsigned char *data, unsigned long data_len, unsigned char *digest)
 {
 
-    EVP_MD_CTX cmd_ctx;
     unsigned int md_len = 0;
+
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+    EVP_MD_CTX cmd_ctx;
 
     //Calculate the hash from the data
     EVP_DigestInit(&cmd_ctx, EVP_sha256());
     EVP_DigestUpdate(&cmd_ctx, data, data_len);
     EVP_DigestFinal(&cmd_ctx, digest, &md_len);
+#else
+    EVP_MD_CTX *cmd_ctx = EVP_MD_CTX_new();
+    //Calculate the hash from the data
+    EVP_DigestInit(cmd_ctx, EVP_sha256());
+    EVP_DigestUpdate(cmd_ctx, data, data_len);
+    EVP_DigestFinal(cmd_ctx, digest, &md_len);
+    EVP_MD_CTX_free(cmd_ctx);
+#endif
 
     return md_len;
-
 }
 
 void loadPkcs7Object(QByteArray &sigBinary, SignatureDetails &sigDetails)
