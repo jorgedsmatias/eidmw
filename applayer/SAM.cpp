@@ -114,11 +114,19 @@ char * SAM::_getCVCPublicKey()
 	unsigned char * mod_bytes = cvc_modulus.GetBytes();
 	unsigned char * exp_bytes = cvc_exponent.GetBytes();
 
+
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	key_tmp->n = BN_bin2bn(mod_bytes+offset_mod,
                                  128, key_tmp->n);
 	key_tmp->e = BN_bin2bn(exp_bytes+offset_exp,
                                  3, key_tmp->e);
-
+#else
+	BIGNUM *n = BN_bin2bn(mod_bytes+offset_mod, 128, NULL);
+	BIGNUM *e = BN_bin2bn(exp_bytes+offset_exp, 3, NULL);
+        RSA_set0_key(key_tmp, n, e, NULL);
+        BN_free(n);
+        BN_free(e);
+#endif
 	EVP_PKEY_assign_RSA(evp_key, key_tmp);
 	 
 	int der_len = i2d_PUBKEY(evp_key, &rsa_der);
@@ -144,8 +152,16 @@ char * SAM::_getCardAuthPublicKey()
 	unsigned char * mod_bytes = key->getModulus()->GetBytes();
 	unsigned char * exp_bytes = key->getExponent()->GetBytes();
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	key_tmp->n = BN_bin2bn(mod_bytes, key->getModulus()->Size(), key_tmp->n);
 	key_tmp->e = BN_bin2bn(exp_bytes, key->getExponent()->Size(), key_tmp->e);
+#else
+	BIGNUM *n = BN_bin2bn(mod_bytes, key->getModulus()->Size(), NULL);
+	BIGNUM *e = BN_bin2bn(exp_bytes, key->getExponent()->Size(), NULL);
+        RSA_set0_key(key_tmp, n, e, NULL);
+        BN_free(n);
+        BN_free(e);
+#endif
 	EVP_PKEY_assign_RSA(evp_key, key_tmp);
 
 	int der_len = i2d_PUBKEY(evp_key, &rsa_der);
@@ -324,6 +340,7 @@ char *SAM::getPK_IFD_AUT(CByteArray &cvc_cert)
 
     //Build CVC CA public key     
     RSA * pubkey = RSA_new();
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
     pubkey->n = BN_bin2bn(m_ca_cvc_modulus.GetBytes(), 128, NULL); // BN_hex2bn(&pubkey->n, ca_mod);
     pubkey->e = BN_bin2bn(m_ca_cvc_exponent.GetBytes(), 3, NULL); // BN_hex2bn(&pubkey->n, ca_mod);
 
@@ -332,6 +349,18 @@ char *SAM::getPK_IFD_AUT(CByteArray &cvc_cert)
     	MWLOG(LEV_ERROR, MOD_APL, L"Failed to parse bignums into public key struct!" );
     	return NULL;
     }
+#else
+    BIGNUM *n = BN_bin2bn(m_ca_cvc_modulus.GetBytes(), 128, NULL);
+    BIGNUM *e = BN_bin2bn(m_ca_cvc_exponent.GetBytes(), 3, NULL);
+    if(!RSA_set0_key(pubkey, n, e, NULL)) {
+    	MWLOG(LEV_ERROR, MOD_APL, L"Failed to parse bignums into public key struct!" );
+    	BN_free(n);
+    	BN_free(e);
+    	return NULL;
+    }
+    BN_free(n);
+    BN_free(e);
+#endif
 
     int ret = RSA_public_decrypt(sizeof(signature), signature, decrypted_data, pubkey, RSA_NO_PADDING);
 
