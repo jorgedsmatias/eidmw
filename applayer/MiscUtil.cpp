@@ -50,6 +50,45 @@
 #include "eidErrors.h"
 #include "ByteArray.h"
 
+// Xerces
+#include <xercesc/dom/DOM.hpp>
+#include <xercesc/util/PlatformUtils.hpp>
+#include <xercesc/framework/LocalFileFormatTarget.hpp>
+#include <xercesc/framework/MemBufFormatTarget.hpp>
+#include <xercesc/framework/MemBufInputSource.hpp>
+#include <xercesc/dom/DOM.hpp>
+#include <xercesc/parsers/XercesDOMParser.hpp>
+#include <xercesc/util/XMLException.hpp>
+#include <xercesc/util/XMLUri.hpp>
+#include <xercesc/util/Janitor.hpp>
+
+// XML-Security-C (XSEC)
+#include <xsec/framework/XSECDefs.hpp>
+#if _XSEC_VERSION_FULL < 20000L
+#include <xsec/utils/XSECDOMUtils.hpp>
+#else
+#include <xsec/utils/XSECPlatformUtils.hpp>
+#endif
+#include <xsec/framework/XSECProvider.hpp>
+#include <xsec/framework/XSECException.hpp>
+//#include <xsec/dsig/DSIGReference.hpp>
+//#include <xsec/dsig/DSIGObject.hpp>
+//#include <xsec/dsig/DSIGConstants.hpp>
+//#include <xsec/dsig/DSIGKeyInfoX509.hpp>
+//#include <xsec/enc/OpenSSL/OpenSSLCryptoKeyHMAC.hpp>
+//#include <xsec/enc/OpenSSL/OpenSSLCryptoX509.hpp>
+//#include <xsec/enc/OpenSSL/OpenSSLCryptoBase64.hpp>
+//#include <xsec/enc/XSECKeyInfoResolverDefault.hpp>
+
+//#include <xsec/enc/XSECCryptoUtils.hpp>
+//#include <xsec/enc/XSECCryptoException.hpp>
+//#include <xsec/utils/XSECBinTXFMInputStream.hpp>
+#include <xsec/utils/XSECSafeBuffer.hpp>
+//#include <xsec/transformers/TXFMBase.hpp>
+//#include <xsec/transformers/TXFMChain.hpp>
+
+XERCES_CPP_NAMESPACE_USE
+
 #define STR_BEGIN_CERTIFICATE   "-----BEGIN CERTIFICATE-----"
 #define STR_END_CERTIFICATE     "-----END CERTIFICATE-----"
 

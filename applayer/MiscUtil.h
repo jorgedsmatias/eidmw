@@ -34,12 +34,14 @@
 #include <openssl/x509.h>
 
 // XSEC
-//#include <xsec/framework/XSECDefs.hpp>
+#include <xsec/framework/XSECDefs.hpp>
 // Required to keep functions makeQName() working
 // Starting libxml-security-c v2.0.0+ makeQName() functions became internal.
 #if _XSEC_VERSION_FULL >= 20000L
-#pragma message("libxml-security-c v2 detected!")
 #include <xsec/utils/XSECSafeBuffer.hpp>
+#include <xsec/utils/XSECPlatformUtils.hpp>
+#include <xercesc/util/XMLException.hpp>
+#include <xercesc/util/XMLUniDefs.hpp>
 #endif
 
 namespace eIDMW
